@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+numpy
+tensorflow==2.16.1
+librosa
+soundfile
+python-multipart
