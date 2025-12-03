@@ -94,11 +94,6 @@ async def predict_raw(request: Request):
             print("--> Rejected: Silence/Low Volume")
             return {"prediction": "traffic", "confidence": 0.0, "note": "Low Volume"}
 
-        # --- فلتر 2: الشوشرة (Static Noise Check) ---
-        # لو الـ ZCR عالي، يبقى ده وش مش صوت سارينة
-        if zcr > ZCR_THRESHOLD:
-            print(f"--> Rejected: High Static Noise (ZCR={zcr:.3f})")
-            return {"prediction": "traffic", "confidence": 0.0, "note": "Static Noise Detected"}
 
         # 4. تضخيم الصوت (فقط لو عدى الفلاتر)
         audio = audio / max_amplitude
