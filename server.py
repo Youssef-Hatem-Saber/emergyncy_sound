@@ -21,7 +21,7 @@ NOISE_THRESHOLD = 0.05
 # 2. حد الشوشرة (ZCR Threshold) - الجديد!
 # الوش العالي بيكون الـ ZCR بتاعه أعلى من 0.15 عادة
 # الإسعاف بيكون أقل من 0.1
-ZCR_THRESHOLD = 0.15 
+ZCR_THRESHOLD = 0.3 
 
 print("Loading TFLite Model...")
 try:
@@ -94,6 +94,9 @@ async def predict_raw(request: Request):
             print("--> Rejected: Silence/Low Volume")
             return {"prediction": "traffic", "confidence": 0.0, "note": "Low Volume"}
 
+        if zcr > ZCR_THRESHOLD:
+            print(f"--> Rejected: High Static Noise (ZCR={zcr:.3f})")
+            return {"prediction": "traffic", "confidence": 0.0, "note": "Static Noise Detected"}
 
         # 4. تضخيم الصوت (فقط لو عدى الفلاتر)
         audio = audio / max_amplitude
