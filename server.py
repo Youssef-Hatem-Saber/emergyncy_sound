@@ -2,9 +2,7 @@ import uvicorn
 import numpy as np
 import librosa
 import tensorflow as tf
-from fastapi import FastAPI, UploadFile, File
-from io import BytesIO
-import soundfile as sf
+from fastapi import FastAPI, Request
 
 app = FastAPI()
 
@@ -17,17 +15,7 @@ output_details = INTERPRETER.get_output_details()
 CLASSES = ["ambulance", "firetruck", "traffic"]
 
 
-def extract_from_wav(raw_bytes):
-    try:
-        audio, sr = sf.read(BytesIO(raw_bytes), dtype="float32")
-        if sr != 16000:
-            audio = librosa.resample(audio, orig_sr=sr, target_sr=16000)
-        return audio
-    except:
-        return None
-
-
-def extract_from_raw_pcm(raw_bytes):
+def pcm16_to_float32(raw_bytes):
     try:
         audio = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32)
         audio = audio / 32768.0
@@ -47,8 +35,7 @@ def extract_mfcc(audio, sr=16000, n_mfcc=40, max_len=40):
             mfcc = mfcc[:max_len]
 
         return mfcc
-    except Exception as e:
-        print("MFCC Error:", e)
+    except:
         return None
 
 
@@ -62,19 +49,16 @@ def predict(mfcc):
 
 
 @app.post("/predict")
-async def predict_sound(file: UploadFile = File(...)):
-    raw_bytes = await file.read()
+async def predict_raw(request: Request):
+    raw_bytes = await request.body()
 
-    audio = extract_from_wav(raw_bytes)
-    if audio is None:
-        audio = extract_from_raw_pcm(raw_bytes)
-
-    if audio is None:
-        return {"error": "Invalid audio format."}
+    audio = pcm16_to_float32(raw_bytes)
+    if audio is None or len(audio) == 0:
+        return {"error": "Invalid RAW PCM data"}
 
     mfcc = extract_mfcc(audio)
     if mfcc is None:
-        return {"error": "Failed to extract MFCC"}
+        return {"error": "MFCC error"}
 
     label, confidence = predict(mfcc)
     return {"prediction": label, "confidence": confidence}
@@ -82,7 +66,7 @@ async def predict_sound(file: UploadFile = File(...)):
 
 @app.get("/")
 def root():
-    return {"status": "API running", "ok": True}
+    return {"status": "RAW PCM server running"}
 
 
 if __name__ == "__main__":
