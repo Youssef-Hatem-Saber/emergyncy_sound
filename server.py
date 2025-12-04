@@ -14,7 +14,6 @@ CLASSES = ["ambulance", "firetruck", "traffic"]
 
 NOISE_THRESHOLD = 0.2 
 
-
 ZCR_THRESHOLD = 0.45 
 
 print("Loading TFLite Model...")
