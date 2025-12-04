@@ -16,7 +16,7 @@ MODEL_PATH = "emergency_sound_classifier.tflite"
 CLASSES = ["ambulance", "firetruck", "traffic"]
 
 # 1. حد ارتفاع الصوت (Noise Gate)
-NOISE_THRESHOLD = 0.2
+NOISE_THRESHOLD = 0.3
 
 # 2. حد الشوشرة (ZCR Threshold) - الجديد!
 # الوش العالي بيكون الـ ZCR بتاعه أعلى من 0.15 عادة
