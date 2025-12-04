@@ -6,22 +6,22 @@ import scipy.io.wavfile
 import time
 import os
 from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse
 
 app = FastAPI()
 
 # ---------------------------------------------------------
-# إعدادات الموديل والفلاتر
+# إعدادات الموديل (تم تعديل الحساسية للأماكن المزعجة)
 # ---------------------------------------------------------
 MODEL_PATH = "emergency_sound_classifier.tflite"
 CLASSES = ["ambulance", "firetruck", "traffic"]
 
-# 1. حد ارتفاع الصوت (Noise Gate)
-NOISE_THRESHOLD = 0.05 
+# 1. رفعنا حد الضوضاء لـ 0.35 
+# (أي صوت أقل من 0.35 سيعتبر ضوضاء خلفية ولن يتم تحليله)
+# بما أن الضوضاء عندك 0.4، قد تحتاج لرفع هذا الرقم لـ 0.45 لو لسه بيلقط
+NOISE_THRESHOLD = 0.35 
 
-# 2. حد الشوشرة (ZCR Threshold) - الجديد!
-# الوش العالي بيكون الـ ZCR بتاعه أعلى من 0.15 عادة
-# الإسعاف بيكون أقل من 0.1
-ZCR_THRESHOLD = 0.3 
+# تم إلغاء ZCR_THRESHOLD لأن المكان عندك فيه وش طبيعي عالي
 
 print("Loading TFLite Model...")
 try:
@@ -36,7 +36,6 @@ except Exception as e:
 
 if not os.path.exists("received_audio"):
     os.makedirs("received_audio")
-
 
 # ---------------------------------------------------------
 # دوال المساعدة
@@ -65,7 +64,7 @@ def predict_from_mfcc(mfcc):
     return CLASSES[idx], confidence
 
 # ---------------------------------------------------------
-# API Endpoint
+# API Endpoints
 # ---------------------------------------------------------
 
 @app.post("/predict")
@@ -77,29 +76,36 @@ async def predict_raw(request: Request):
         audio = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
         if len(audio) == 0: return {"error": "Empty audio data"}
 
-        # 2. إزالة DC Offset
+        # 2. إزالة DC Offset (مهم جداً لتقليل القراءة الخاطئة للضوضاء)
         audio = audio - np.mean(audio)
 
-        # 3. حساب الخصائص الفيزيائية للصوت
+        # 3. تحليل مستوى الصوت
         max_amplitude = np.max(np.abs(audio))
         
-        # حساب معدل تقاطع الصفر (ZCR) - كاشف الشوشرة
-        # بنحسب متوسط عدد المرات اللي الموجة قطعت فيها خط الصفر
-        zcr = np.mean(librosa.feature.zero_crossing_rate(y=audio))
+        print(f"Stats -> Max Amp: {max_amplitude:.3f}")
 
-        print(f"Stats -> Max Amp: {max_amplitude:.3f} | ZCR: {zcr:.3f}")
-
-        # --- فلتر 1: الصوت الواطي (Silence Check) ---
+        # --- فلتر 1: تجاهل الضوضاء الخلفية العالية ---
+        # إذا كان الصوت أقل من الحد المسموح (0.35)، نعتبره Traffic
         if max_amplitude < NOISE_THRESHOLD:
-            print("--> Rejected: Silence/Low Volume")
-            return {"prediction": "traffic", "confidence": 0.0, "note": "Low Volume"}
+            print(f"--> Rejected: Below Threshold ({NOISE_THRESHOLD})")
+            return {"prediction": "traffic", "confidence": 0.0, "note": "High Background Noise Ignored"}
 
-        if zcr > ZCR_THRESHOLD:
-            print(f"--> Rejected: High Static Noise (ZCR={zcr:.3f})")
-            return {"prediction": "traffic", "confidence": 0.0, "note": "Static Noise Detected"}
-
-        # 4. تضخيم الصوت (فقط لو عدى الفلاتر)
-        audio = audio / max_amplitude
+        # 4. تضخيم ذكي (Smart Normalization)
+        # بدلاً من تضخيم الصوت لأقصى حد (مما يشوه الإشارة)، نضخمه فقط إذا كان يحتاج ذلك
+        # ونضع سقفاً للتضخيم (مثلاً لا نضرب في أكثر من 2x) لتجنب تفجير الضوضاء
+        
+        target_level = 0.8 # المستوى المستهدف
+        gain = target_level / (max_amplitude + 0.0001) # حساب مقدار التضخيم المطلوب
+        
+        # لو الجين المطلوب كبير جداً (أكثر من 3 أضعاف)، نحدده بـ 3 فقط
+        # عشان منضخمش الوش لمستويات مرعبة
+        if gain > 3.0: 
+            gain = 3.0
+            
+        audio = audio * gain
+        
+        # التأكد من عدم تجاوز الحدود -1 و 1 (Clipping Protection)
+        audio = np.clip(audio, -1.0, 1.0)
 
         # حفظ الملف للمراجعة
         timestamp = int(time.time())
@@ -118,6 +124,21 @@ async def predict_raw(request: Request):
     except Exception as e:
         print(f"Server Error: {e}")
         return {"error": str(e)}
+
+@app.get("/files")
+def list_files():
+    files = []
+    if os.path.exists("received_audio"):
+        files = os.listdir("received_audio")
+        files.sort(reverse=True)
+    return {"files": files}
+
+@app.get("/files/{filename}")
+def get_file(filename: str):
+    file_path = f"received_audio/{filename}"
+    if os.path.exists(file_path):
+        return FileResponse(file_path)
+    return {"error": "File not found"}
 
 if __name__ == "__main__":
     uvicorn.run("server_main:app", host="0.0.0.0", port=8080, reload=True)
